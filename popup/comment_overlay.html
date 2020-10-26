@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+
+<html>
+  <head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" href="comment_overlay.css"/>
+    <script src="comment_overlay.js"></script>
+  </head>
+
+<body>
+  <div id="popup-content">
+    <div class="tab">
+      <button class="tablinks active" onclick="openTab(event, 'Bilibili')">Bilibili</button>
+      <button class="tablinks" onclick="openTab(event, 'AcFun')">AcFun</button>
+      <button class="tablinks" onclick="openTab(event, 'NicoNico')">NicoNico</button>
+    </div>
+    
+    <div id="Bilibili" class="tabcontent" style="display: block">
+      <p>Please enter one of the video IDs:</p>
+      <table>
+        <tr>
+          <td>cid:</td>
+          <td style="text-align:right">
+            <input type="text" id="cid_input"><br>
+          </td>
+        </tr>
+        <tr>
+          <td>BvId:</td>
+          <td style="text-align:right">
+            <input type="text" id="bvid_input"><br>
+          </td>
+        </tr>
+        <tr>
+          <td>Av #:</td>
+          <td style="text-align:right">
+            <input type="text" id="aid_input"><br>
+          </td>
+        </tr>
+      </table>
+    </div>
+    
+    <div id="AcFun" class="tabcontent">
+      <p> Still under construction......</p>
+    </div>
+    
+    <div id="NicoNico" class="tabcontent">
+      <p> Still under construction......</p>
+    </div>
+    <div id="control">
+      <button id="start" class="button">Start Overlay</button>
+      <button id="reset" class="button">Reset</button>
+    </div>
+  </div>
+  <div id="error-content" class="hidden">
+  </div>
+</body>
+
+</html>
