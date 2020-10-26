@@ -101,14 +101,17 @@
       var dX = prevX - e.clientX;
       var dY = prevY - e.clientY;
       // set the element's new position:
-      element.style.height = (oldHeight - dY) + 'px';
-      element.style.width = (oldWidth - dX) + 'px';
+      element.height = (oldHeight - dY);// + 'px';
+      element.width = (oldWidth - dX);// + 'px';
     }
 
     function dragMouseUp(e) {
       // stop moving when mouse button is released:
       document.onmouseup = prevMouseUp;
       document.onmousemove = prevMouseMove;
+      if (element.onresize) {
+        element.onresize();
+      }
     }
   }
 
@@ -122,8 +125,8 @@
     header.style.opacity = "1.0";
     header.style.height = "3em";
     header.style.width = "100%";
-    header.style.boxShadow = "0 0 5px #fff";
-    header.style.backgroundColor = "#202020";
+    header.style.boxShadow = "5px 5px 5px 10px #ffffff";
+    header.style.backgroundColor = "#303030";
     header.style.borderRadius = "5px";
     header.style.pointerEvents = "auto";
 
@@ -153,10 +156,10 @@
     // The canvas for drawing & animating comments
     var canvas = document.createElement("canvas");
     canvas.id = "comment_overlay_canvas";
-    canvas.style.height = `${screen.height / 2}px`;
-    canvas.style.width = `${screen.width / 2}px`;
-    canvas.style.opacity = "0.2";
-    canvas.style.backgroundColor = "black";
+    canvas.height = screen.height / 2;
+    canvas.width = screen.width / 2;
+    canvas.style.opacity = "1.0";
+    //canvas.style.backgroundColor = "black";
     canvas.style.float = "left";
 
     top.appendChild(header);
@@ -184,10 +187,276 @@
     top.style.top = `${screen.height / 4}px`;
     top.style.left = `${screen.width / 4}px`;
     top.style.pointerEvents = "none";
-    top.style.border = ".5px solid #505050";
-    top.style.borderBottom = "none";
+    top.style.boxShadow = "-1px -1px 3px 2px #dddddd";
+    //top.style.outline = "2px solid #505050";
+
+    // add a handler for hiding / reshowing;
+    header.style.transition = "opacity 1s";
+    resize_btn.style.transition = "opacity 1s";
+    top.style.transition = "opacity 1s";
+    function showHeaderAndResize() {
+      header.style.opacity = 1.0;
+      resize_btn.style.opacity = 1.0;
+      //top.style.outline = "2px solid #505050";
+      top.style.boxShadow = "-1px -1px 3px 2px #dddddd";
+    }
+
+    function hideHeaderAndResize() {
+      header.style.opacity = 0.0;
+      resize_btn.style.opacity = 0.0;
+      top.style.outline = "none";
+      top.style.boxShadow = "none";
+    }
+
+    header.onmouseover = showHeaderAndResize;
+    header.onmouseout = hideHeaderAndResize;
+    resize_btn.onmouseover = showHeaderAndResize;
+    resize_btn.onmouseout = hideHeaderAndResize;
 
     return top;
+  }
+
+  function numToHexRgb(n) {
+    var s = Number(n).toString(16);
+    while (s.length < 6) {
+      s = '0' + s;
+    }
+    return "#" + s;
+  }
+
+  function getBorderColor(n) {
+    var r = n >> (8 * 2);
+    var g = (n & 0x00ffff) >> 8;
+    var b = n & 0x0000ff;
+    var grayscale = (r + g + b) / 3;
+    if (grayscale > 255 / 2) {
+      return "#000000";
+    } else {
+      return "#ffffff";
+    }
+  }
+
+  // assuming comments are sorted by time by caller
+  function startOverlay(comments) {
+    var canvas = document.getElementById("comment_overlay_canvas");
+    if (!canvas) {
+      console.error("Could not find canvas to draw");
+      return;
+    }
+
+    var video_tags = document.getElementsByTagName("video");
+    var video_tag = null;
+    if (video_tags.length > 1) {
+      for (var i = 0; i < video_tags.length; i++) {
+        if (video_tags[i].currentSrc != "") {
+          video_tag = video_tags[i];
+        }
+      }
+    } else if (video_tags.length == 1) {
+      video_tag = video_tags[0];
+    } else {
+      console.log("comment_overlay: no video tag found");
+    }
+
+    var max_comment_on_screen = 99999999;
+    var font_px = 25;
+    var ctx = canvas.getContext("2d");
+    ctx.font = `bold ${font_px}px -apple-system,BlinkMacSystemFont,Helvetica Neue,Helvetica,Arial,PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif`;
+    ctx.textAlign = "left";
+    var active_comments = [];
+    var paused = false;
+    var curr_time = 0;
+    var comment_idx = 0;
+
+    var lane_margin = 10;
+    var lane_occupied = [];
+    var lane_queueing = [];
+    var lane_max_queueing = 0;
+    var num_lanes = Math.floor(canvas.height / (font_px + lane_margin)) - 1;
+
+    var top_occupied = []
+    for (var i = 0; i < num_lanes; i++) {
+      top_occupied.push(false);
+      lane_occupied.push(null);
+      lane_queueing.push(0);
+    }
+
+    var horizonal_margin = 2 * font_px;
+    var refresh_interval = 20;
+
+    canvas.onresize = resizeHandler;
+    var prev_time_stamp = performance.now() / 1000.0;
+    requestAnimationFrame(updateComments);
+
+    function resizeHandler() {
+      var canvas = document.getElementById("comment_overlay_canvas");
+      if (!canvas) {
+        return;
+      }
+      var ctx = canvas.getContext("2d");
+      ctx.font = `bold ${font_px}px -apple-system,BlinkMacSystemFont,Helvetica Neue,Helvetica,Arial,PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif`;
+      ctx.textAlign = "left";
+      num_lanes = Math.floor(canvas.height / (font_px + lane_margin)) - 1;
+      top_occupied.length = num_lanes;
+      lane_occupied.length = num_lanes;
+      lane_queueing.length = num_lanes;
+    }
+
+    function updateComments(time_stamp) {
+      var canvas = document.getElementById("comment_overlay_canvas");
+      if (!canvas) {
+        return;
+      }
+
+      var dt = time_stamp - prev_time_stamp;
+      prev_time_stamp = time_stamp;
+      if (video_tag) {
+        curr_time = video_tag.currentTime - dt / 1000;
+        if (video_tag.paused) {
+          var orig_onplay = video_tag.onplay;
+          video_tag.onplay = function (e) {
+            requestAnimationFrame(updateComments);
+            video_tag.onplay = orig_onplay;
+            if (orig_onplay) {
+              orig_onplay(e);
+            }
+          }
+          return;
+        }
+      }
+
+      var ctx = canvas.getContext("2d");
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      var free_lane_idx = 0;
+      while (comment_idx < comments.length && curr_time >= comments[comment_idx]["time"]) {
+        if (active_comments.length > max_comment_on_screen) {
+          comment_idx++;
+          continue;
+        }
+        var ce = comments[comment_idx];
+        var new_entry = {};
+        new_entry.text = ce["text"];
+        new_entry.color = numToHexRgb(ce["color"]);
+        new_entry.borderColor = getBorderColor(ce["color"]);
+        new_entry.type = "roll";
+        if (ce["displayMode"] == 5) {
+          new_entry.type = "top";
+        }
+        new_entry.left = canvas.width;
+        // scale speed according to text length (not accurate though...)
+        var text_len = new_entry.text.length * font_px;
+        new_entry.speed = ce["speed"];// * (text_len + canvas.width) / canvas.width
+        new_entry.countdown = 999;
+
+        new_entry.width = text_len;
+        new_entry.height = font_px;
+
+        if (new_entry.type == "top") {
+          new_entry.countdown = canvas.width / new_entry.speed * 1000 / 2.0;
+          new_entry.left = canvas.width / 2 - text_len / 2;
+        }
+
+        // find a position for the comment
+        var prev_free_idx = free_lane_idx;
+        if (new_entry.type == "top") {
+          do {
+            if (!top_occupied[free_lane_idx]) {
+              break;
+            }
+            free_lane_idx = (free_lane_idx + 1) % num_lanes;
+          } while (free_lane_idx != prev_free_idx);
+          if (top_occupied[free_lane_idx]) {
+            comment_idx++;
+            continue;
+          }
+          top_occupied[free_lane_idx] = true;
+        } else {
+          do {
+            if (!lane_occupied[free_lane_idx]) {
+              break;
+            }
+            free_lane_idx = (free_lane_idx + 1) % num_lanes;
+          } while (free_lane_idx != prev_free_idx);
+          if (lane_occupied[free_lane_idx]) {
+            free_lane_idx = Math.floor(Math.random() * num_lanes);
+            if (true || lane_queueing[free_lane_idx] >= lane_max_queueing) {
+              // skip this one
+              comment_idx++;
+              continue;
+            }
+            lane_queueing[free_lane_idx]++;
+            lane_occupied[free_lane_idx].occupying = -1;
+            new_entry.speed = lane_occupied[free_lane_idx].speed;
+            new_entry.left += (lane_occupied[free_lane_idx].text.length * font_px) - (canvas.width - lane_occupied[free_lane_idx]);
+          }
+          lane_occupied[free_lane_idx] = new_entry;
+        }
+        new_entry.top = free_lane_idx * (font_px + lane_margin) + (lane_margin / 2) + font_px;
+        new_entry.occupying = free_lane_idx;
+        active_comments.push(new_entry);
+        comment_idx++;
+      }
+      /*
+      for (var i = 0; i < active_comments.length; i++) {
+        var entry = active_comments[i];
+        ctx.clearRect(entry.left, entry.top, entry.width, entry.height);
+      }
+      */
+      for (var i = 0; i < active_comments.length; i++) {
+        var entry = active_comments[i];
+        ctx.fillStyle = entry.color;
+        ctx.strokeStyle = entry.borderColor;
+        ctx.fillText(entry.text, entry.left, entry.top);
+        ctx.strokeText(entry.text, entry.left, entry.top);
+
+        switch (entry.type) {
+          case "top":
+            entry.countdown -= dt;
+            break;
+          case "roll":
+            entry.left -= dt * entry.speed / 1000.0;
+            if (entry.occupying >= 0 && entry.left + entry.text.length * font_px + horizonal_margin < canvas.width) {
+              if (lane_occupied.length > entry.occupying) {
+                lane_occupied[entry.occupying] = null;
+                if (lane_queueing[entry.occupying] > 0) {
+                  lane_queueing[entry.occupying]--;
+                }
+              }
+              entry.occupying = -1;
+            }
+            break;
+        }
+      }
+
+      var delta = 0;
+      for (var i = 0; i < active_comments.length; i++) {
+        var e = active_comments[i];
+        var should_remove = false;
+        if (e.countdown < 0) {
+          should_remove = true;
+        } else if (e.left + e.text.length * font_px < 0) {
+          should_remove = true;
+        }
+
+        if (should_remove && e.occupying >= 0) {
+          if (e.type == "roll" && lane_occupied.length > entry.occupying) {
+            lane_occupied[e.occupying] = null;
+          }
+          if (e.type == "top" && top_occupied.length > entry.occupying) {
+            top_occupied[e.occupying] = false;
+          }
+        }
+        if (should_remove) {
+          delta++;
+        } else if (delta > 0) {
+          active_comments[i - delta] = active_comments[i];
+        }
+      }
+      active_comments.length -= delta;
+      curr_time += dt / 1000.0;
+      requestAnimationFrame(updateComments);
+    }
   }
 
   /**
@@ -199,6 +468,8 @@
     removeExistingOverlay();
     var overlay = constructOverlay();
     document.body.appendChild(overlay);
+    comments.sort(function (a, b) { return a["time"] - b["time"]; });
+    startOverlay(comments);
   }
 
   /**

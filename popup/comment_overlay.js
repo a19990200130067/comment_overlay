@@ -33,10 +33,10 @@ function parseBilibiliDanmaku(xmlContent) {
     var entry = {}
     var attrs = all_danmaku[i].getAttribute('p');
     attrs = attrs.replace(/\s/g, '').split(',');
-    // attrs: time,?,?
     entry["time"] = parseFloat(attrs[0]);
     entry["displayMode"] = parseInt(attrs[1]);
     entry["color"] = parseInt(attrs[3]);
+    entry["speed"] = 150; // pixel per second
     entry["text"] = all_danmaku[i].childNodes[0].textContent;
     result.push(entry);
   }
@@ -44,9 +44,27 @@ function parseBilibiliDanmaku(xmlContent) {
 }
 
 function fetchCommentsFromBili() {
-  cid = document.getElementById("cid_input").value;
-  bvid = document.getElementById("bvid_input").value;
-  aid = document.getElementById("aid_input").value;
+  var cid = document.getElementById("cid_input").value;
+  var bvid = document.getElementById("bvid_input").value;
+  var aid = document.getElementById("aid_input").value;
+
+  if (cid == "" && bvid != "") {
+    var request = new XMLHttpRequest();
+    request.open('GET', `https://api.bilibili.com/x/player/pagelist?bvid=${bvid}`, false);
+    request.send(null);
+    if (request.status === 200) {
+      var reply = JSON.parse(request.responseText);
+      var video_no = parseInt(document.getElementById("bvid_video_no").value) - 1;
+      if (isNaN(video_no) || video_no < 0) {
+        video_no = 0;
+      }
+      if (video_no < reply.data.length) {
+        cid = reply.data[video_no].cid;
+      }
+    }
+  } else if (cid == "" && aid != "") {
+    // TODO: convert aid to cid
+  }
 
   if (cid == "") {
     return [];
