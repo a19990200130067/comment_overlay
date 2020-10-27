@@ -181,6 +181,7 @@
     setResizeAnchor(canvas, resize_btn);
 
     // setup styles for dragging
+    top.style.fontSize = "16px";
     top.style.position = "fixed";
     top.style.zIndex = "255";
     top.style.opacity = "1.0";
@@ -263,8 +264,10 @@
     var ctx = canvas.getContext("2d");
     ctx.font = `bold ${font_px}px -apple-system,BlinkMacSystemFont,Helvetica Neue,Helvetica,Arial,PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif`;
     ctx.textAlign = "left";
+    var horizonal_margin = 2 * font_px;
+    canvas.onresize = resizeHandler;
+
     var active_comments = [];
-    var paused = false;
     var curr_time = 0;
     var comment_idx = 0;
 
@@ -280,13 +283,26 @@
       lane_occupied.push(null);
       lane_queueing.push(0);
     }
+    
+    var prev_time_stamp = performance.now();
 
-    var horizonal_margin = 2 * font_px;
-    var refresh_interval = 20;
-
-    canvas.onresize = resizeHandler;
-    var prev_time_stamp = performance.now() / 1000.0;
     requestAnimationFrame(updateComments);
+
+    function initVars() {
+      active_comments = [];
+      comment_idx = 0;
+
+      lane_occupied = [];
+      lane_queueing = [];
+      num_lanes = Math.floor(canvas.height / (font_px + lane_margin)) - 1;
+
+      top_occupied = []
+      for (var i = 0; i < num_lanes; i++) {
+        top_occupied.push(false);
+        lane_occupied.push(null);
+        lane_queueing.push(0);
+      }
+    }
 
     function resizeHandler() {
       var canvas = document.getElementById("comment_overlay_canvas");
@@ -313,8 +329,20 @@
       if (video_tag) {
         curr_time = video_tag.currentTime - dt / 1000;
         if (video_tag.paused) {
+          var prev_video_time = video_tag.currentTime;
           var orig_onplay = video_tag.onplay;
           video_tag.onplay = function (e) {
+            // update curr_time, and clear active comments
+            curr_time = video_tag.currentTime;
+            if (Math.abs(curr_time - prev_video_time) > 1.0) {
+              initVars();
+            }
+            // search for starting point.
+            // using linear scan here. Could use binary search for better performance
+            while (comment_idx < comments.length && curr_time >= comments[comment_idx]["time"]) {
+              comment_idx++;
+            }
+            prev_time_stamp = performance.now();
             requestAnimationFrame(updateComments);
             video_tag.onplay = orig_onplay;
             if (orig_onplay) {
@@ -385,10 +413,12 @@
               comment_idx++;
               continue;
             }
+            /*
             lane_queueing[free_lane_idx]++;
             lane_occupied[free_lane_idx].occupying = -1;
             new_entry.speed = lane_occupied[free_lane_idx].speed;
             new_entry.left += (lane_occupied[free_lane_idx].text.length * font_px) - (canvas.width - lane_occupied[free_lane_idx]);
+            */
           }
           lane_occupied[free_lane_idx] = new_entry;
         }

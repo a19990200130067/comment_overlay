@@ -1,12 +1,10 @@
 function openTab(evt, tabName) {
   var i, tabcontent, tablinks;
-  console.log(tabName);
   tabcontent = document.getElementsByClassName("tabcontent");
   for (i = 0; i < tabcontent.length; i++) {
     tabcontent[i].style.display = "none";
   }
   tablinks = document.getElementsByClassName("tablinks");
-  console.log(tablinks)
   for (i = 0; i < tablinks.length; i++) {
     tablinks[i].className = tablinks[i].className.replace(" active", "");
   }
@@ -16,7 +14,6 @@ function openTab(evt, tabName) {
 
 function parseBilibiliDanmaku(xmlContent) {
   var all_danmaku = xmlContent.getElementsByTagName("d");
-  console.log(all_danmaku);
   var result = [];
   /*
     Example danmaku entry:
@@ -46,6 +43,7 @@ function parseBilibiliDanmaku(xmlContent) {
 function fetchCommentsFromBili() {
   var cid = document.getElementById("cid_input").value;
   var bvid = document.getElementById("bvid_input").value;
+  var mdss = document.getElementById("mdss_input").value;
   var aid = document.getElementById("aid_input").value;
 
   if (cid == "" && bvid != "") {
@@ -60,6 +58,38 @@ function fetchCommentsFromBili() {
       }
       if (video_no < reply.data.length) {
         cid = reply.data[video_no].cid;
+      }
+    }
+  } else if (cid == "" && mdss != "") {
+    var season_id = "";
+    var video_no = parseInt(document.getElementById("mdss_video_no").value) - 1;
+    if (isNaN(video_no) || video_no < 0) {
+      video_no = 0;
+    }
+    switch (mdss.slice(0, 2)) {
+      case "md":
+        {
+          var media_id = mdss.slice(2);
+          var request = new XMLHttpRequest();
+          request.open('GET', `https://api.bilibili.com/pgc/review/user?media_id=${media_id}`, false);
+          request.send(null);
+          if (request.status === 200) {
+            var reply = JSON.parse(request.responseText);
+            season_id = reply.result.media.season_id;
+          }
+        }
+        break;
+      case "ss":
+        season_id = mdss.slice(2);
+        break;
+    }
+    var request = new XMLHttpRequest();
+    request.open('GET', `https://api.bilibili.com/pgc/web/season/section?season_id=${season_id}`, false);
+    request.send(null);
+    if (request.status === 200) {
+      var reply = JSON.parse(request.responseText);
+      if (video_no < reply.result.main_section.episodes.length) {
+        cid = reply.result.main_section.episodes[video_no].cid;
       }
     }
   } else if (cid == "" && aid != "") {
@@ -93,13 +123,12 @@ function listenForClicks() {
       var comment_source = "";
       tablinks = document.getElementsByClassName("tablinks");
       for (i = 0; i < tablinks.length; i++) {
-        console.log("classes: ", tablinks[i].classList, tablinks[i].className);
         if (tablinks[i].classList.contains("active")) {
           comment_source = tablinks[i].firstChild.nodeValue;
           break;
         }
       }
-      console.log(`Here we go ${comment_source}`);
+      
       if (comment_source == "Bilibili") {
         comments = fetchCommentsFromBili();
       } else if (comment_source == "AcFun") {
@@ -111,7 +140,7 @@ function listenForClicks() {
       if (comments.length == 0) {
         return;
       }
-      console.log(comments);
+      outputPrintlnHTML(`Got <span style="color:#657b83;">${comments.length}</span> comments from <span style="color:#93a1a1;">${comment_source}</span>`);
       browser.tabs.sendMessage(tabs[0].id, {
         command: "start_overlay",
         comments: comments,
@@ -145,6 +174,140 @@ function listenForClicks() {
   });
 }
 
+function tryRestoreState() {
+  return browser.storage.local.get("comment_overlay_state")
+  .then(function (e) {
+    if (!("comment_overlay_state" in e)) {
+      return;
+    }
+    var data = e.comment_overlay_state.bilibili_data;
+    var input_src = ["cid", "bvid","mdss", "aid"];
+    var video_no_src = ["bvid","mdss", "aid"];
+    input_src.map(function (src) {
+      var id = src + "_input";
+      if (id in data) {
+        document.getElementById(id).value = data[id];
+      }
+    });
+    video_no_src.map(function (src) {
+      var id = src + "_video_no";
+      if (id in data) {
+        document.getElementById(id).value = data[id];
+      }
+    });
+  })
+  .then(function () {
+    var output = document.getElementById("output");
+    if (output && output.restoreFromStorage) {
+      return output.restoreFromStorage();
+    }
+  });
+}
+
+function setUnloadHandler() {
+  window.addEventListener("unload", async function () {
+    var input_src = ["cid", "bvid","mdss", "aid"];
+    var video_no_src = ["bvid","mdss", "aid"];
+    var bilibili_data = {};
+    input_src.map(function (src) {
+      var id = src + "_input";
+      bilibili_data[id] = document.getElementById(id).value;
+    });
+    video_no_src.map(function (src) {
+      var id = src + "_video_no";
+      var dep_id = src + "_input";
+      if (bilibili_data[dep_id] && bilibili_data[dep_id] != "") {
+        bilibili_data[id] = document.getElementById(id).value;
+      }
+    });
+    var comment_overlay_state = {};
+    comment_overlay_state.bilibili_data = bilibili_data;
+    var output_data = document.getElementById("output").storageState();
+    comment_overlay_state.output_data = output_data;
+    await browser.storage.local.set({comment_overlay_state})
+    .then(function () {
+      console.log("OK");
+    });
+    //if (output.beforeUnload) {
+      //await output.beforeUnload();
+    //}
+  });
+}
+
+function setupOutput() {
+  var output = document.getElementById("output");
+  output.lines = [];
+  var max_lines = 8;
+  for (var i = 0; i < max_lines; i++) {
+    output.lines.push("");
+  }
+  var line_idx = 0;
+  function refreshOutput() {
+    var html = "";
+    for (var i = 0; i < max_lines; i++) {
+      html += output.lines[i] + "<br>";
+    }
+    output.innerHTML = html;
+  }
+
+  output.storageState = function () {
+    return { "max_lines": max_lines, "lines": output.lines};
+  }
+
+  output.beforeUnload = function () {
+    var output_data = {}
+    output_data.max_lines = max_lines;
+    output_data.lines = output.lines;
+    return browser.storage.local.set({ output_data })
+    .then(function () {
+      console.log("OK");
+    })
+  };
+
+  output.restoreFromStorage = function () {
+    return browser.storage.local.get("comment_overlay_state")
+    .then (function (r) {
+      if (!("comment_overlay_state" in r)) {
+        return;
+      }
+      var output_data = r.comment_overlay_state.output_data;
+      max_lines = output_data.max_lines;
+      output.lines = Array.from(output_data.lines);
+      refreshOutput();
+      line_idx = 0;
+      while (line_idx < max_lines && output.lines[line_idx] != "") {
+        line_idx++;
+      }
+    });
+  };
+
+  output.printlnHTML = function (msg) {
+    if (line_idx < max_lines) {
+      output.lines[line_idx] = msg;
+      line_idx++;
+    } else {
+      output.lines.shift();
+      output.lines.push(msg);
+      line_idx = max_lines;
+    }
+    refreshOutput();
+  };
+}
+
+function outputPrintln(msg) {
+  var output = document.getElementById("output");
+  if (output && output.printlnHTML) {
+    output.printlnHTML(escape(msg));
+  }
+}
+
+function outputPrintlnHTML(msg) {
+  var output = document.getElementById("output");
+  if (output && output.printlnHTML) {
+    output.printlnHTML(msg);
+  }
+}
+
 /**
  * There was an error executing the script.
  * Display the popup's error message, and hide the normal UI.
@@ -152,7 +315,7 @@ function listenForClicks() {
 function reportExecuteScriptError(error) {
   document.querySelector("#popup-content").classList.add("hidden");
   document.querySelector("#error-content").classList.remove("hidden");
-  console.error(`Failed to execute beastify content script: ${error.message}`);
+  console.error(`Failed to execute content script: ${error.message}`);
 }
 
 /**
@@ -161,5 +324,8 @@ function reportExecuteScriptError(error) {
  * If we couldn't inject the script, handle the error.
  */
 browser.tabs.executeScript({file: "/content_scripts/overlay_canvas.js"})
+.then(setupOutput)
+.then(tryRestoreState)
+.then(setUnloadHandler)
 .then(listenForClicks)
 .catch(reportExecuteScriptError);
