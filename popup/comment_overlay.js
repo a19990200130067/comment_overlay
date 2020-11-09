@@ -40,13 +40,31 @@ function parseBilibiliDanmaku(xmlContent) {
   return result;
 }
 
+function parseAcFunDanmaku(comments) {
+  var result = [];
+  var i;
+  for (i = 0; i < comments.length; i++) {
+    var entry = {};
+    attrs = comments[i].c.replace(/\s/g, '').split(',');
+    entry["time"] = parseFloat(attrs[0]);
+    entry["displayMode"] = parseInt(attrs[2]);
+    entry["color"] = parseInt(attrs[1]);
+    entry["speed"] = 150; // pixel per second
+    entry["text"] = comments[i].m;
+    result.push(entry);
+  }
+  return result;
+}
+
 function fetchCommentsFromBili() {
   var cid = document.getElementById("cid_input").value;
   var bvid = document.getElementById("bvid_input").value;
   var mdss = document.getElementById("mdss_input").value;
   var aid = document.getElementById("aid_input").value;
 
+  outputPrintlnHTML(`Fetching comment from <span style="color:#93a1a1;">Bilibili</span>...`);
   if (cid == "" && bvid != "") {
+    outputPrintlnHTML(`Using BV# <span style="color:#93a1a1;">${bvid}</span>...`);
     var request = new XMLHttpRequest();
     request.open('GET', `https://api.bilibili.com/x/player/pagelist?bvid=${bvid}`, false);
     request.send(null);
@@ -70,6 +88,7 @@ function fetchCommentsFromBili() {
       case "md":
         {
           var media_id = mdss.slice(2);
+          outputPrintlnHTML(`Getting season ID from media ID...`);
           var request = new XMLHttpRequest();
           request.open('GET', `https://api.bilibili.com/pgc/review/user?media_id=${media_id}`, false);
           request.send(null);
@@ -83,6 +102,7 @@ function fetchCommentsFromBili() {
         season_id = mdss.slice(2);
         break;
     }
+    outputPrintlnHTML(`Using season ID <span style="color:#93a1a1;">${season_id}</span>...`);
     var request = new XMLHttpRequest();
     request.open('GET', `https://api.bilibili.com/pgc/web/season/section?season_id=${season_id}`, false);
     request.send(null);
@@ -99,6 +119,7 @@ function fetchCommentsFromBili() {
   if (cid == "") {
     return [];
   } else {
+    outputPrintlnHTML(`Got cid <span style="color:#93a1a1;">${cid}</span>...`);
     var request = new XMLHttpRequest();
     request.open('GET', `https://comment.bilibili.com/${cid}.xml`, false);  // `false` makes the request synchronous
     request.send(null);
@@ -109,6 +130,76 @@ function fetchCommentsFromBili() {
       return [];
     }
   }
+}
+
+function fetchCommentsFromAcfun() {
+  var acno = document.getElementById("acno_input").value;
+  var aaid = document.getElementById("aaid_input").value;
+  var vid = null;
+  outputPrintlnHTML(`Fetching comment from <span style="color:#93a1a1;">AcFun</span>...`);
+  if (aaid != "") {
+    var video_no = parseInt(document.getElementById("aaid_video_no").value) - 1;
+    var request = new XMLHttpRequest();
+    request.open('GET', `https://www.acfun.cn/bangumi/${aaid}`, false);
+    request.send(null);
+    if (request.status === 200) {
+      var lines = request.responseText.split("\n");
+      var i;
+      var bangumiList = null;
+      for (i = 0; i < lines.length; i++) {
+        var line = lines[i].trim();
+        if (line.startsWith("window.bangumiList =")) {
+          bangumiList = JSON.parse(line.slice(line.indexOf('=') + 1, line.indexOf(';')));
+          break;
+        }
+      }
+      if (bangumiList) {
+        if (video_no < bangumiList.items.length) {
+          vid = bangumiList.items[video_no].videoId;
+        }
+      }
+    } else {
+      outputPrintlnHTML(`Unexpected HTTP reply code: ${request.status}`);
+      return [];
+    }
+  }
+  
+  if (!vid) {
+    var request = new XMLHttpRequest();
+    request.open('GET', `https://www.acfun.cn/v/${acno}?quickViewId=videoInfo_new&ajaxpipe=1`, false);
+    request.send(null);
+    if (request.status === 200) {
+      var vid_matches = request.responseText.match("currentVideoId\\\\\":[0-9]+,");
+      if (vid_matches.length < 1) {
+        outputPrintlnHTML(`<span style="color:#dc322f;">Error:</span> Could not find vid`);
+        return [];
+      }
+      vid = vid_matches[0].slice(vid_matches[0].indexOf(':') + 1, vid_matches[0].length - 1);
+    } else {
+      outputPrintlnHTML(`Unexpected HTTP reply code: ${request.status}`);
+      return [];
+    }
+  }
+  outputPrintlnHTML(`Got vid <span style="color:#93a1a1;">${vid}</span>...`);
+  var i;
+  var comments = [];
+  for (i = 1; i <= 50; i++) {
+    request.open('GET', `http://danmu.aixifan.com/V3/${vid}_2/${i}/500`, false);
+    request.send(null);
+    if (request.status === 200) {
+      var reply = JSON.parse(request.responseText);
+      var new_comments = parseAcFunDanmaku(reply[2]);
+      outputPrintlnHTML(`Page ${i}: got <span style="color:#93a1a1;">${new_comments.length}</span> comments.`);
+      comments = comments.concat(new_comments);
+      if (reply[2].length < 500) {
+        outputPrintlnHTML(`No more comments.`);
+        break;
+      }
+    } else {
+      break;
+    }
+  }
+  return comments;
 }
 
 /**
@@ -132,7 +223,7 @@ function listenForClicks() {
       if (comment_source == "Bilibili") {
         comments = fetchCommentsFromBili();
       } else if (comment_source == "AcFun") {
-
+        comments = fetchCommentsFromAcfun();
       } else if (comment_source == "Niconico") {
 
       }
@@ -195,6 +286,13 @@ function tryRestoreState() {
         document.getElementById(id).value = data[id];
       }
     });
+
+    var acfun_data = e.comment_overlay_state.acfun_data;
+    if (acfun_data) {
+      document.getElementById("acno_input").value = acfun_data["acno"];
+      document.getElementById("aaid_input").value = acfun_data["aaid"];
+      document.getElementById("aaid_video_no").value = acfun_data["aaid_video_no"];
+    }
   })
   .then(function () {
     var output = document.getElementById("output");
@@ -206,6 +304,7 @@ function tryRestoreState() {
 
 function setUnloadHandler() {
   window.addEventListener("unload", async function () {
+    // Bilibili
     var input_src = ["cid", "bvid","mdss", "aid"];
     var video_no_src = ["bvid","mdss", "aid"];
     var bilibili_data = {};
@@ -220,8 +319,16 @@ function setUnloadHandler() {
         bilibili_data[id] = document.getElementById(id).value;
       }
     });
+
+    // AcFun
+    var acfun_data = {};
+    acfun_data["acno"] = document.getElementById("acno_input").value;
+    acfun_data["aaid"] = document.getElementById("aaid_input").value;
+    acfun_data["aaid_video_no"] = document.getElementById("aaid_video_no").value;
+
     var comment_overlay_state = {};
     comment_overlay_state.bilibili_data = bilibili_data;
+    comment_overlay_state.acfun_data = acfun_data;
     var output_data = document.getElementById("output").storageState();
     comment_overlay_state.output_data = output_data;
     await browser.storage.local.set({comment_overlay_state})

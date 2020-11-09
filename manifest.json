@@ -11,7 +11,9 @@
   "permissions": [
     "activeTab",
     "storage",
-    "*://*.bilibili.com/*"
+    "*://*.bilibili.com/*",
+    "*://*.acfun.cn/*",
+    "*://*.aixifun.com/*"
   ],
 
   "browser_action": {

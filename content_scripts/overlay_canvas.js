@@ -125,7 +125,7 @@
     header.style.opacity = "1.0";
     header.style.height = "3em";
     header.style.width = "100%";
-    header.style.boxShadow = "5px 5px 5px 10px #ffffff";
+    header.style.boxShadow = "0px 0px 3px 5px #ffffff";
     header.style.backgroundColor = "#303030";
     header.style.borderRadius = "5px";
     header.style.pointerEvents = "auto";
@@ -177,6 +177,7 @@
     resize_btn.style.cursor = "nwse-resize";
     resize_btn.style.backgroundColor = "#202020";
     resize_btn.style.pointerEvents = "auto";
+    resize_btn.style.boxShadow = "0px 0px 3px 5px #ffffff";
     top.appendChild(resize_btn);
     setResizeAnchor(canvas, resize_btn);
 
@@ -188,7 +189,7 @@
     top.style.top = `${screen.height / 4}px`;
     top.style.left = `${screen.width / 4}px`;
     top.style.pointerEvents = "none";
-    top.style.boxShadow = "-1px -1px 3px 2px #dddddd";
+    top.style.boxShadow = "0px 0px 3px 2px #dddddd";
     //top.style.outline = "2px solid #505050";
 
     // add a handler for hiding / reshowing;
@@ -199,7 +200,7 @@
       header.style.opacity = 1.0;
       resize_btn.style.opacity = 1.0;
       //top.style.outline = "2px solid #505050";
-      top.style.boxShadow = "-1px -1px 3px 2px #dddddd";
+      top.style.boxShadow = "0px 0px 3px 2px #dddddd";
     }
 
     function hideHeaderAndResize() {
@@ -285,8 +286,22 @@
     }
     
     var prev_time_stamp = performance.now();
+    var req_id = null;
+    var stopped = false;
+    canvas.cancelOverlayFn = stopUpdate;
 
-    requestAnimationFrame(updateComments);
+    req_id = requestAnimationFrame(updateComments);
+
+    function stopUpdate() {
+      initVars();
+      curr_time = 999999999;
+      comments = [];
+      comment_idx = comments.length;
+      stopped = true;
+      if (req_id) {
+        cancelAnimationFrame(req_id);
+      }
+    }
 
     function initVars() {
       active_comments = [];
@@ -319,6 +334,9 @@
     }
 
     function updateComments(time_stamp) {
+      if (stopped) {
+        return;
+      }
       var canvas = document.getElementById("comment_overlay_canvas");
       if (!canvas) {
         return;
@@ -327,7 +345,17 @@
       var dt = time_stamp - prev_time_stamp;
       prev_time_stamp = time_stamp;
       if (video_tag) {
-        curr_time = video_tag.currentTime - dt / 1000;
+        if (curr_time - video_tag.currentTime > 1.0) {
+          // seeked back, need to adjust comment_idx
+          // use linear scan here. Update to binary search for better performance
+          initVars();
+          curr_time = video_tag.currentTime - dt / 1000;
+          while (comment_idx < comments.length && curr_time >= comments[comment_idx]["time"]) {
+            comment_idx++;
+          }
+        } else {
+          curr_time = video_tag.currentTime - dt / 1000;
+        }
         if (video_tag.paused) {
           var prev_video_time = video_tag.currentTime;
           var orig_onplay = video_tag.onplay;
@@ -336,19 +364,20 @@
             curr_time = video_tag.currentTime;
             if (Math.abs(curr_time - prev_video_time) > 1.0) {
               initVars();
-            }
-            // search for starting point.
-            // using linear scan here. Could use binary search for better performance
-            while (comment_idx < comments.length && curr_time >= comments[comment_idx]["time"]) {
-              comment_idx++;
+              // search for starting point.
+              // using linear scan here. Could use binary search for better performance
+              while (comment_idx < comments.length && curr_time >= comments[comment_idx]["time"]) {
+                comment_idx++;
+              }
             }
             prev_time_stamp = performance.now();
-            requestAnimationFrame(updateComments);
+            req_id = requestAnimationFrame(updateComments);
             video_tag.onplay = orig_onplay;
             if (orig_onplay) {
               orig_onplay(e);
             }
           }
+          req_id = null;
           return;
         }
       }
@@ -485,7 +514,7 @@
       }
       active_comments.length -= delta;
       curr_time += dt / 1000.0;
-      requestAnimationFrame(updateComments);
+      req_id = requestAnimationFrame(updateComments);
     }
   }
 
@@ -506,7 +535,11 @@
    * Remove every beast from the page.
    */
   function removeExistingOverlay() {
-    let existingCanvas = document.getElementById("comment_overlay_canvas_top");
+    var existingCanvas = document.getElementById("comment_overlay_canvas_top");
+    var canvas = document.getElementById("comment_overlay_canvas");
+    if (canvas && canvas.cancelOverlayFn) {
+      canvas.cancelOverlayFn();
+    }
     if (existingCanvas) {
       existingCanvas.remove();
     }
