@@ -122,6 +122,8 @@
     // header is what we use to drag & move the overlay
     var header = document.createElement("div");
     header.id = "comment_overlay_canvas_header";
+    header.style.position = "absolute";
+    header.style.transform = "translateY(-100%)";
     header.style.opacity = "1.0";
     header.style.height = "3em";
     header.style.width = "100%";
@@ -138,11 +140,59 @@
     var header_drag = createSvgElement("comment_overlay_canvas_drag", "M2 8a1 1 0 1 1 0 2 1 1 0 0 1 0-2zm0-3a1 1 0 1 1 0 2 1 1 0 0 1 0-2zm3 3a1 1 0 1 1 0 2 1 1 0 0 1 0-2zm0-3a1 1 0 1 1 0 2 1 1 0 0 1 0-2zm3 3a1 1 0 1 1 0 2 1 1 0 0 1 0-2zm0-3a1 1 0 1 1 0 2 1 1 0 0 1 0-2zm3 3a1 1 0 1 1 0 2 1 1 0 0 1 0-2zm0-3a1 1 0 1 1 0 2 1 1 0 0 1 0-2zm3 3a1 1 0 1 1 0 2 1 1 0 0 1 0-2zm0-3a1 1 0 1 1 0 2 1 1 0 0 1 0-2z");
     header_drag.style.position = "relative";
     header_drag.style.left = "50%";
-    header_drag.style.marginLeft = "auto";
-    header_drag.style.marginRight = "auto";
+    //header_drag.style.marginLeft = "auto";
+    //header_drag.style.marginRight = "auto";
     header_drag.style.transform = "translateX(-50%)";
     header_drag.style.cursor = "move";
     setDragAnchor(top, header_drag);
+
+    // input for time delta
+    var time_delta_input = document.createElement("input");
+    time_delta_input.style.position = "absolute";
+    time_delta_input.style.left = "60%";
+    time_delta_input.style.top = "50%";
+    time_delta_input.style.width = "5em";
+    time_delta_input.style.height = "2em";
+    time_delta_input.style.zIndex = "256";
+    time_delta_input.style.transform = "translate(0%, -50%)";
+
+    var time_delta_btn = document.createElement("div");
+    time_delta_btn.id = "comment_overlay_canvas_update_delta";
+    time_delta_btn.innerText = "Update Delta";
+    time_delta_btn.style.position = "absolute";
+    time_delta_btn.style.left = "60%";
+    time_delta_btn.style.top = "50%";
+    time_delta_btn.style.width = "8em";
+    time_delta_btn.style.height = "2em";
+    time_delta_btn.style.zIndex = "256";
+    time_delta_btn.style.textAlign = "center";
+    time_delta_btn.style.color = "#ffffff";
+    time_delta_btn.style.borderStyle = "solid";
+    time_delta_btn.style.borderColor = "#ffffff";
+    time_delta_btn.style.borderWidth = "2px";
+    time_delta_btn.style.backgroundColor = "#303030";
+    time_delta_btn.style.cursor = "pointer";
+    time_delta_btn.style.transform = "translate(7.5em, -50%)";
+    time_delta_btn.style.transition = "background-color 0.5s ease";
+
+    time_delta_btn.onmouseover = function () {
+      time_delta_btn.style.backgroundColor = "#f0f0f0";
+      time_delta_btn.style.borderColor = "#000000";
+      time_delta_btn.style.color = "#000000";
+    }
+    
+    time_delta_btn.onmouseout = function () {
+      time_delta_btn.style.backgroundColor = "#303030";
+      time_delta_btn.style.borderColor = "#ffffff";
+      time_delta_btn.style.color = "#ffffff";
+    }
+
+    time_delta_btn.onclick = function () {
+      var delta = parseFloat(time_delta_input.value);
+      if (!isNaN(delta)) {
+        canvas.updateTimeDeltaFn(delta);
+      }
+    }
 
 
     var close_btn = createSvgElement("comment_overlay_canvas_close", "M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z");
@@ -152,6 +202,8 @@
 
     header.appendChild(header_drag);
     header.appendChild(close_btn);
+    header.appendChild(time_delta_input);
+    header.appendChild(time_delta_btn);
 
     // The canvas for drawing & animating comments
     var canvas = document.createElement("canvas");
@@ -278,6 +330,12 @@
     var lane_max_queueing = 0;
     var num_lanes = Math.floor(canvas.height / (font_px + lane_margin)) - 1;
 
+    var time_delta = 0;
+
+    canvas.updateTimeDeltaFn = function(delta) {
+      time_delta = delta;
+    };
+
     var top_occupied = []
     for (var i = 0; i < num_lanes; i++) {
       top_occupied.push(false);
@@ -345,23 +403,25 @@
       var dt = time_stamp - prev_time_stamp;
       prev_time_stamp = time_stamp;
       if (video_tag) {
-        if (curr_time - video_tag.currentTime > 1.0) {
+        var curr_time_from_tag = video_tag.currentTime + time_delta;
+        if (curr_time - curr_time_from_tag > 1.0) {
           // seeked back, need to adjust comment_idx
-          // use linear scan here. Update to binary search for better performance
+          // use linear scan here.
+          // TODO: Update to binary search for better performance
           initVars();
-          curr_time = video_tag.currentTime - dt / 1000;
+          curr_time = curr_time_from_tag - dt / 1000;
           while (comment_idx < comments.length && curr_time >= comments[comment_idx]["time"]) {
             comment_idx++;
           }
         } else {
-          curr_time = video_tag.currentTime - dt / 1000;
+          curr_time = curr_time_from_tag - dt / 1000;
         }
         if (video_tag.paused) {
-          var prev_video_time = video_tag.currentTime;
+          var prev_video_time = curr_time_from_tag;
           var orig_onplay = video_tag.onplay;
           video_tag.onplay = function (e) {
             // update curr_time, and clear active comments
-            curr_time = video_tag.currentTime;
+            curr_time = curr_time_from_tag;
             if (Math.abs(curr_time - prev_video_time) > 1.0) {
               initVars();
               // search for starting point.
