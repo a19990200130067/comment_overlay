@@ -115,9 +115,36 @@
     }
   }
 
+  function getZIndex(ele) {
+    var result = 0;
+    while (ele && ele.tagName && ele.tagName != 'body' && ele.tagName != 'html') {
+      var z = document.defaultView.getComputedStyle(ele).getPropertyValue('z-index');
+      if (!isNaN(z)) result = Math.max(result, z);
+      ele = ele.parentNode;
+    }
+    return result;
+  }
+
   function constructOverlay() {
     var top = document.createElement("div");
     top.id = "comment_overlay_canvas_top";
+
+    var canvas_base_zindex = 10001;
+    var video_tags = document.getElementsByTagName("video");
+    var video_tag = null;
+    if (video_tags.length > 1) {
+      for (var i = 0; i < video_tags.length; i++) {
+        if (video_tags[i].currentSrc != "") {
+          video_tag = video_tags[i];
+        }
+      }
+    } else if (video_tags.length == 1) {
+      video_tag = video_tags[0];
+    }
+
+    if (video_tag) {
+      canvas_base_zindex = Math.max(canvas_base_zindex, getZIndex(video_tag) + 1);
+    }
 
     // header is what we use to drag & move the overlay
     var header = document.createElement("div");
@@ -153,7 +180,7 @@
     time_delta_input.style.top = "50%";
     time_delta_input.style.width = "5em";
     time_delta_input.style.height = "2em";
-    time_delta_input.style.zIndex = "256";
+    time_delta_input.style.zIndex = (canvas_base_zindex + 1).toString();
     time_delta_input.style.transform = "translate(0%, -50%)";
 
     var time_delta_btn = document.createElement("div");
@@ -164,7 +191,7 @@
     time_delta_btn.style.top = "50%";
     time_delta_btn.style.width = "8em";
     time_delta_btn.style.height = "2em";
-    time_delta_btn.style.zIndex = "256";
+    time_delta_btn.style.zIndex = (canvas_base_zindex + 1).toString();
     time_delta_btn.style.textAlign = "center";
     time_delta_btn.style.color = "#ffffff";
     time_delta_btn.style.borderStyle = "solid";
@@ -180,7 +207,7 @@
       time_delta_btn.style.borderColor = "#000000";
       time_delta_btn.style.color = "#000000";
     }
-    
+
     time_delta_btn.onmouseout = function () {
       time_delta_btn.style.backgroundColor = "#303030";
       time_delta_btn.style.borderColor = "#ffffff";
@@ -213,6 +240,7 @@
     canvas.style.opacity = "1.0";
     //canvas.style.backgroundColor = "black";
     canvas.style.float = "left";
+    canvas.style.zIndex = canvas_base_zindex.toString();
 
     top.appendChild(header);
     top.appendChild(canvas);
@@ -230,13 +258,14 @@
     resize_btn.style.backgroundColor = "#202020";
     resize_btn.style.pointerEvents = "auto";
     resize_btn.style.boxShadow = "0px 0px 3px 5px #ffffff";
+    resize_btn.style.zIndex = canvas_base_zindex.toString();
     top.appendChild(resize_btn);
     setResizeAnchor(canvas, resize_btn);
 
     // setup styles for dragging
     top.style.fontSize = "16px";
     top.style.position = "fixed";
-    top.style.zIndex = "255";
+    top.style.zIndex = canvas_base_zindex.toString();
     top.style.opacity = "1.0";
     top.style.top = `${screen.height / 4}px`;
     top.style.left = `${screen.width / 4}px`;
@@ -342,7 +371,7 @@
       lane_occupied.push(null);
       lane_queueing.push(0);
     }
-    
+
     var prev_time_stamp = performance.now();
     var req_id = null;
     var stopped = false;
