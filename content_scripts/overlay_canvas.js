@@ -125,12 +125,29 @@
     return result;
   }
 
+  function findAllVideoEle(doc) {
+    var video_tags = Array.from(doc.getElementsByTagName("video"));
+    video_tags.filter(v => v.currentSrc != "");
+    var iframe_list = doc.getElementsByTagName("iframe");
+    for (var i = 0; i < iframe_list.length; i++) {
+      try {
+        var inner_doc = iframe_list[i].contentDocument || iframe_list[i].contentWindow.document;
+        var inner_videos = findAllVideoEle(inner_doc);
+        video_tags = video_tags.concat(inner_videos);
+      } catch (err) {
+        console.log("Got error inspecting iframe: %o %o\n", iframe_list[i], err);
+      }
+    }
+    console.log("video_tags 2: %o\n", video_tags);
+    return video_tags;
+  }
+
   function constructOverlay() {
     var top = document.createElement("div");
     top.id = "comment_overlay_canvas_top";
 
     var canvas_base_zindex = 10001;
-    var video_tags = document.getElementsByTagName("video");
+    var video_tags = findAllVideoEle(document);
     var video_tag = null;
     if (video_tags.length > 1) {
       for (var i = 0; i < video_tags.length; i++) {
@@ -327,7 +344,7 @@
       return;
     }
 
-    var video_tags = document.getElementsByTagName("video");
+    var video_tags = findAllVideoEle(document);
     var video_tag = null;
     if (video_tags.length > 1) {
       for (var i = 0; i < video_tags.length; i++) {
